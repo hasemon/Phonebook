@@ -2,6 +2,20 @@ const express = require('express')
 const app = express()
 const morgan = require('morgan')
 const cors = require('cors')
+require('dotenv').config()
+
+const Person = require('./models/person')
+
+const unknownRoute = (request, response) => {
+	response.status(404).send('Unknown route')
+}
+const errorhandler = (error, request, response, next) => {
+	console.log(error)
+	if (error.name === 'CastError'){
+		return response.status(400).send({ error:'malformatted id'})
+	}
+	next(error)
+}
 
 
 app.use(express.static('dist'))
@@ -14,29 +28,6 @@ app.use(morgan(':method :url :status :res[content-length] - :response-time ms :b
 
 
 
-let persons = [
-	{
-		id: 1,
-		name: "Arto Hellas",
-		number: "040-123456",
-	},
-	{
-		id: 2,
-		name: "Ada Lovelace",
-		number: "39-44-5323523",
-	},
-	{
-		id: 3,
-		name: "Dan Abramov",
-		number: "12-43-234345",
-	},
-	{
-		id: 4,
-		name: "Mary Poppendieck",
-		number: "39-23-6423122",
-	},
-];
-
 app.get("/", (request, response) => {
 	response.send(
 		`
@@ -47,36 +38,35 @@ app.get("/", (request, response) => {
 	);
 });
 
-app.get('/info', (request, response) => {
-	response.send(`
-	<p>Phonebook has info for ${persons.length} </p>
-	<p>${new Date()}</p>
-	`)
+app.get('/info', (request, response, next) => {
+	Person.countDocuments({})
+		.then(count => {
+			response.send(
+				`<p>Phonebook has info for ${count} persons</p>
+					<p>${new Date()}</p>`
+			)
+		})
+		.catch(error => next(error))
 })
 
 app.get("/api/persons", (request, response) => {
-	console.log(response)
-	response.json(persons);
+	Person.find({}).then(persons => {
+		response.json(persons)
+	})
 });
 
-app.get('/api/persons/:id', (request, response) => {
-	const id = Number(request.params.id)
-	const person = persons.find(person => person.id === id)
-
-	if (person) {
-		response.json(person)
-	} else {
-		response.status(404).end()
-	}
+app.get('/api/persons/:id', (request, response, next) => {
+	Person.findById(request.params.id).then(person => {
+		if (person) {
+			response.json(person)
+		} else {
+			response.status(404).end()
+		}
+	})
+		.catch(error => next(error) )
 })
 
-function generateId(){
-	const maxId = persons.length > 0 ? Math.max(...persons.map(n => n.id)) : 0
-	return maxId + 1
-}
-
-
-app.post('/api/persons', (request, response) => {
+app.post('/api/persons', (request, response, next) => {
 	const body = request.body;
 	if (!body.name || !body.number) {
 		return response.status(400).json({
@@ -84,34 +74,55 @@ app.post('/api/persons', (request, response) => {
 		});
 	}
 
-	const existingPerson = persons.find( person => person.name === body.name )
-	if (existingPerson) {
-        return response.status(400).json({
-            error: 'Person already exists'
-        });
-    }
-	const person = {
-		id: generateId(),
+	const person = new Person({
 		name: body.name,
 		number: body.number,
-	};
+	})
 
-	persons = persons.concat(person);
-	response.json(person);
+	person.save()
+		.then(savedPerson => {
+		response.json(savedPerson)
+	})
+		.catch(error => next(error))
 });
 
 
 
-app.delete('/api/persons/:id', (request, response) => {
-	const id = Number(request.params.id)
-	persons = persons.filter(person => person.id !== id)
+app.delete('/api/persons/:id', (request, response, next) => {
+	Person.findByIdAndDelete(request.params.id)
+		.then(deletedPerson =>{
+			if (deletedPerson){
+				response.status(204).end()
+			}else{
+				response.status(404).end()
+			}
+		})
+		.catch(error => next(error))
 
-	response.status(204).end()
+})
+
+app.put('/api/persons/:id', (request, response, next) => {
+	const body = request.body;
+	const updatedPerson = {
+		name: body.name,
+		number: body.number
+	}
+	Person.findByIdAndUpdate(request.params.id, updatedPerson, {new: true})
+		.then(updatedPerson => {
+			if (updatedPerson){
+				response.json(updatedPerson)
+			}else {
+				response.status(404).end()
+			}
+		})
+		.catch(error => next(error))
 })
 
 
+app.use(unknownRoute)
+app.use(errorhandler)
 
-const PORT = process.env.PORT || 3001
+const PORT = process.env.PORT
 app.listen(PORT, () => {
 	console.log(`Server running on ${PORT}`);
 });

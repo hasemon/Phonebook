@@ -13,6 +13,8 @@ const errorhandler = (error, request, response, next) => {
 	console.log(error)
 	if (error.name === 'CastError'){
 		return response.status(400).send({ error:'malformatted id'})
+	}else if (error.name === 'ValidationError'){
+		return  response.status(400).json({error: error.message})
 	}
 	next(error)
 }
@@ -70,7 +72,7 @@ app.post('/api/persons', (request, response, next) => {
 	const body = request.body;
 	if (!body.name || !body.number) {
 		return response.status(400).json({
-			error: 'Name or number is missing'
+			error: `Name or number is missing`
 		});
 	}
 
@@ -102,12 +104,11 @@ app.delete('/api/persons/:id', (request, response, next) => {
 })
 
 app.put('/api/persons/:id', (request, response, next) => {
-	const body = request.body;
-	const updatedPerson = {
-		name: body.name,
-		number: body.number
-	}
-	Person.findByIdAndUpdate(request.params.id, updatedPerson, {new: true})
+	const {content, number} = request.body;
+
+	Person.findByIdAndUpdate(request.params.id,
+		{content, number},
+		{new: true, runValidators:true, context: 'query'})
 		.then(updatedPerson => {
 			if (updatedPerson){
 				response.json(updatedPerson)
